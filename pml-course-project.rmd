@@ -1,0 +1,104 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Vincent Alexander Saulys"
+date: "July 27, 2014"
+output: html_document
+---
+
+So assuming the data is in the directory, it will be imported here. The requisite R packages will also be called up. These packages are caret and gbm. The caret package is necesary for training the prediction model and the gbm package will be necesary as it contains the main prediction model algorithm to be used, which is called stochastic gradient boosting.
+
+```{r}
+# All packages are assumed to be installed
+library(caret)
+library(gbm)
+pml_training_set <- read.csv('pml-training.csv')
+pml_testing <- read.csv('pml-testing.csv')
+
+```
+
+Now it becomes necesary to begin whittling down excess variables. At 159, there are far too many present to make efficient code. So to start, these excess variables will first have to be removed.
+
+To begin with, the first seven variables will be removed. They contain miscellaneous information such as time stamps. 
+
+```{r}
+pml_training_set <- pml_training_set[8:160]
+```
+
+Following that, variables whose entries are respsented by more than 10% NA values will be deleted.
+
+```{r}
+tmn <- names(colSums(is.na(pml_training_set))[  colSums(is.na(pml_training_set))  > (nrow (pml_training_set) * 0.1) ])
+k <- setdiff (names(pml_training_set), tmn)
+pml_training_set <- pml_training_set[, k]
+```
+
+Lastly, nix all the variables with little variance are nixed. As these variables do not vary much, they will not help in prediction, they simply do not change enough to make a difference in prediction. 
+
+```{r}
+pml_training_set <- pml_training_set[, -nearZeroVar(pml_training_set)]
+```
+
+This gives 52 variables for prediction, which is a marked decrease from the 159 at the outset.
+
+Next comes the paritioning of the data. Given the large number of entries, it can be safely split into 60% training and 40% validation.
+
+```{r}
+dataPartition <- createDataPartition (pml_training_set$classe, p = 0.60, list = FALSE)[, 1]
+training <- pml_training_set[dataPartition, ]
+validate <- pml_training_set[-dataPartition, ]
+```
+
+Then the prediction model is trained. There are several types of models one can make, but gbm was used. The following list are the ones that were cut.
+- **nnet**, also known as neural nets, was cut as its computation time took more than 300 minutes.
+- **ada** resulted in strange nonsencial errors from the R console.
+- **rf** also resulted in strange errors after many hours of computation.
+
+Therefore **gbm** was used, which is a stochastic gradient boosting method. Its profile is displayed below.
+
+```{r, echo=FALSE}
+modelFit_gbm
+```
+
+Cross-validation was used here to check for the out-of-sample error. We expect the out-of-sample accuracy to be the same as the in-sample accuracy.
+
+```{r}
+zeTrain <- trainControl(method='cv',number=10,repeats=1)
+modelFit_gbm <- train(classe ~ ., data = training, method = "gbm", trControl = zeTrain)
+```
+
+Then the validation data is predicted on. The predicted classe is appended to the validation data frame.
+
+
+```{r}
+validate["predicted_gbm"] <- predict(modelFit_gbm, newdata=validate)
+```
+
+Next we'll print the data we see as a confusion matrix, which is a convenient way to view the performance of the prediction model on the validation data set.
+
+```{r,echo=FALSE}
+confusionMatrix(validate$classe,validate$predicted_gbm)
+```
+
+The most important variables the model found are displayed below.
+
+```{r,echo=FALSE}
+varImp(modelFit_gbm)
+```
+
+To finish, all the testing data is predicted upon and outputted into text files for upload to Coursera.
+
+```{r}
+pml_testing["predicted_gbm"] <- predict(modelFit_gbm, newdata=pml_testing)
+answers <- pml_testing$predicted_gbm
+dir.create ('solutions')
+n = length(answers)
+for(i in 1:n)
+{
+  filename = paste("problem_id_",i,".txt")
+  filename = file.path('solutions', filename)
+  write.table (answers[i], file=filename, quote=FALSE, row.names=FALSE, col.names=FALSE)
+}
+```
+
+
+
